@@ -15,7 +15,7 @@ static int map(int s) {
 
 static int is_num(const char *t) {
     if (!t || !*t) return 0;
-    for (; *t; ++t) if (*t < '0' || *t > '9') return 0;
+    for (const char *p = t; *p; ++p) if (*p < '0' || *p > '9') return 0;
     return 1;
 }
 
@@ -26,8 +26,8 @@ int main(int argc, char *argv[]) {
     int *len   = malloc((argc - 1) * sizeof(int));
     if (!start || !len) exit(ENOMEM);
 
-    int m = 0, i = 1;
-    while (i < argc) {
+    int m = 0;
+    for (int i = 1; i < argc; ) {
         start[m] = i;
         len[m]   = 1;
         ++i;
@@ -35,8 +35,10 @@ int main(int argc, char *argv[]) {
         ++m;
     }
 
-    pid_t *pids = malloc(m * sizeof(pid_t));
-    if (!pids) exit(ENOMEM);
+    pid_t *pids  = malloc(m * sizeof(pid_t));
+    int   *codes = malloc(m * sizeof(int));
+    if (!pids || !codes) exit(ENOMEM);
+    for (int i = 0; i < m; ++i) codes[i] = -1;
 
     int prev = STDIN_FILENO;
     for (int k = 0; k < m; ++k) {
@@ -56,6 +58,7 @@ int main(int argc, char *argv[]) {
             if (!stage) _exit(ENOMEM);
             for (int j = 0; j < len[k]; ++j) stage[j] = argv[start[k] + j];
             stage[len[k]] = NULL;
+
             execvp(stage[0], stage);
             perror(stage[0]);
             _exit(errno);
@@ -66,13 +69,16 @@ int main(int argc, char *argv[]) {
         if (k != m - 1) { close(fds[1]); prev = fds[0]; }
     }
 
-    int rc = 0, left = m;
-    while (left) {
+    for (int left = m; left; ) {
         int st; pid_t w = wait(&st);
         if (w == -1) { if (errno == EINTR) continue; exit(errno); }
-        int r = map(st);
-        if (rc == 0 && r) rc = r;
+        for (int i = 0; i < m; ++i)
+            if (pids[i] == w && codes[i] == -1) { codes[i] = map(st); break; }
         --left;
     }
+
+    int rc = 0;
+    for (int i = 0; i < m; ++i) if (codes[i]) { rc = codes[i]; break; }
+
     return rc;
 }
