@@ -1,101 +1,80 @@
-#include <fcntl.h>
-#include <stdio.h>
-#include <stdlib.h>
 #include <unistd.h>
+#include <sys/types.h>
 #include <sys/wait.h>
+#include <stdlib.h>
 #include <errno.h>
+#include <signal.h>
+#include <stdio.h>
+#include <ctype.h>
+#include <string.h>
 
-// NOTE: This an implementation of the strategy explained in discussion!!!
+static int map(int s){
+    if (WIFSIGNALED(s)) return WTERMSIG(s)==SIGPIPE?0:128+WTERMSIG(s);
+    int c=WEXITSTATUS(s); return c==128+SIGPIPE?0:c;
+}
 
-int main(int argc, char *argv[])
-{
-	// 0 Arguments: exit early
-	if (argc <= 1) {
-		errno = EINVAL;
-		perror("ERROR: No arguments provided");
-		exit(errno);
-	}
+static int looks_cmd(const char *t){
+    if(!t||!*t) return 0;
+    if(t[0]=='-') return 0;
+    if(isdigit((unsigned char)t[0])) return 0;
+    for(const char *p=t;*p;++p)
+        if(!isalnum((unsigned char)*p) && *p!='_' && *p!='/') return 0;
+    return 1;
+}
 
-	// 1 Argument: execute normally (avoid making unnecessary pipe)
-	if (argc == 2) {
-		if (execlp(argv[1], argv[1], NULL) == -1) {
-			perror("ERROR: Failed to execute the single program inputted.");
-			exit(errno);
-		}
-		return 0;
-	}
+int main(int argc,char*argv[]){
+    if(argc<=1) exit(EINVAL);
 
-	// 2+ Arguments (pipe time!)
-	if (argc >= 3) {
-		// Multiple pipes to handle more than two arguments (more space efficient than a different pipe for every program)
-		int curr_pipe[2];
-		int prev_pipe[2];
+    int *st=malloc((argc-1)*sizeof(int));
+    int *ln=malloc((argc-1)*sizeof(int));
+    if(!st||!ln) exit(ENOMEM);
 
-		for (int i = 1; i < argc; i++) {
-			// Last argument = do not create a pipe
-			if (i < argc - 1)
-				pipe(curr_pipe);
+    int m=0,i=1;
+    while(i<argc){
+        st[m]=i; ln[m]=1; ++i;
+        while(i<argc && !looks_cmd(argv[i])){ ++ln[m]; ++i; }
+        ++m;
+    }
 
-			// Create child process
-			int pid = fork();
+    pid_t *pid=malloc(m*sizeof(pid_t));
+    int *code=malloc(m*sizeof(int));
+    if(!pid||!code) exit(ENOMEM);
+    for(i=0;i<m;++i) code[i]=-1;
 
-			if (pid < 0) {
-				perror("ERROR: Fork failed!");
-				exit(errno);
-			}
+    int prev=STDIN_FILENO;
+    for(i=0;i<m;++i){
+        int fds[2];
+        if(i!=m-1 && pipe(fds)==-1) exit(errno);
+        pid_t p=fork();
+        if(p==-1) exit(errno);
 
-			// Child process
-			if (pid == 0) {
-				// Not the first program - redirect the input from previous
-				if (i > 1) {
-					dup2(prev_pipe[0], 0);
-					close(prev_pipe[0]);
-				}
+        if(!p){
+            if(prev!=STDIN_FILENO && dup2(prev,STDIN_FILENO)==-1) _exit(errno);
+            if(i!=m-1 && dup2(fds[1],STDOUT_FILENO)==-1) _exit(errno);
+            if(prev!=STDIN_FILENO) close(prev);
+            if(i!=m-1){ close(fds[0]); close(fds[1]); }
 
-				// Not the last program - redirect the output into curr
-				if (i < argc - 1) {
-					dup2(curr_pipe[1], 1);
-					close(curr_pipe[1]);
-				}
+            char **v=malloc((ln[i]+1)*sizeof(char*));
+            if(!v) _exit(ENOMEM);
+            for(int k=0;k<ln[i];++k) v[k]=argv[st[i]+k];
+            v[ln[i]]=NULL;
+            execvp(v[0],v);
+            perror(v[0]); _exit(errno);
+        }
 
-				// Cleanup - after establishing previous fd modifications, we don't need these anymore
-				close(curr_pipe[0]);
-				close(curr_pipe[1]);
+        pid[i]=p;
+        if(prev!=STDIN_FILENO) close(prev);
+        if(i!=m-1){ close(fds[1]); prev=fds[0]; }
+    }
 
-				if (execlp(argv[i], argv[i], NULL) == -1) {
-					perror("ERROR: Failed to execute program from within child process");
-					exit(errno);
-				}
-				
-				return 0;
-			} else { // Parent process
-				// Wait for child process to finish executing
-				int status;
-				wait(&status);
-				if (WEXITSTATUS(status) != 0) {
-					// This should handle if dup2 or close give an error...
-					perror("ERROR: Failed executing a child process, most likely related to the pipe!");
-					return WEXITSTATUS(status);
-				}
+    for(int left=m;left;){
+        int s; pid_t w=wait(&s);
+        if(w==-1){ if(errno==EINTR) continue; exit(errno); }
+        for(int k=0;k<m;++k) if(pid[k]==w){ code[k]=map(s); break; }
+        --left;
+    }
 
-				// The write fd is unnecessary; we only need the read if we have another pipe
-				// The read fd can stay open! Writing acts like a stream so we must close it else the program will hang
-				close(curr_pipe[1]);
-
-				// Not the last program - store old pipe to make space for new pipe
-				if (i < (argc - 1)) {
-					prev_pipe[0] = curr_pipe[0];
-					prev_pipe[1] = curr_pipe[1];
-				} else {
-					// Last program, close all pipes for cleanup just in case...
-					close(prev_pipe[0]);
-					close(prev_pipe[1]);
-					close(curr_pipe[0]);
-					close(curr_pipe[1]);
-				}
-			}
-		}
-	}
-
-	return 0;
+    int rc=0;
+    for(i=0;i<m;++i) if(code[i]){ rc=code[i]; break; }
+    return rc;
 }
