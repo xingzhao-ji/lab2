@@ -11,8 +11,18 @@ To build the program,  run this command
 make
 ```
 ## Running
-
-Show an example run of your program, using at least two additional arguments, and what to expect
+```bash
+cs111@cs111 ~/lab2 (main %) » ls
+Makefile  pipe  pipe.c  pipe.o  __pycache__  README.md  test_lab1.py  test.py
+cs111@cs111 ~/lab2 (main %) » ./pipe ls
+Makefile  pipe  pipe.c  pipe.o  __pycache__  README.md  test_lab1.py  test.py
+cs111@cs111 ~/lab2 (main %) » ls
+Makefile  pipe  pipe.c  pipe.o  __pycache__  README.md  test_lab1.py  test.py
+cs111@cs111 ~/lab2 (main %) » ./pipe ls cat wc
+      8       8      71
+cs111@cs111 ~/lab2 (main %) » ls | cat | wc
+      8       8      71
+```
 
 ## Cleaning up
 
