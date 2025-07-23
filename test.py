@@ -1,13 +1,13 @@
-# test_pipe_revised.py  (drop beside Makefile and pipe.c)
+# test_pipe_final.py
 import os, pathlib, shlex, shutil, signal, subprocess, tempfile, unittest
 
-BIN   = pathlib.Path('./pipe')           # produced by `make`
-SHELL = ['/usr/bin/env', 'bash', '-c']   # ground‑truth reference
+BIN   = './pipe'                          # <<< fixed
+SHELL = ['/usr/bin/env', 'bash', '-c']
 
 def _compile():
     res = subprocess.run(['make'], capture_output=True, text=True)
-    if res.returncode:
-        raise RuntimeError(f"make failed:\n{res.stdout}\n{res.stderr}")
+    if res.returncode or not pathlib.Path(BIN).exists():
+        raise RuntimeError(f"`make` did not create {BIN}:\n{res.stdout}\n{res.stderr}")
 
 def _run_pipe(*argv, timeout=10):
     r = subprocess.run([BIN, *argv], capture_output=True,
