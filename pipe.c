@@ -123,3 +123,4 @@ int main(int argc, char *argv[]) {
     free(pids);
     
     exit(exit_status);
+}
