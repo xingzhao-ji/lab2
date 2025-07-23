@@ -14,13 +14,15 @@ static int map(int s){
 }
 
 static int looks_cmd(const char *t){
-    if(!t||!*t) return 0;
-    if(t[0]=='-') return 0;
+    if(!t||!*t) return 0;                
+    if(strlen(t)==1) return 0;           
+    if(t[0]=='-'        ) return 0;     
     if(isdigit((unsigned char)t[0])) return 0;
     for(const char *p=t;*p;++p)
         if(!isalnum((unsigned char)*p) && *p!='_' && *p!='/') return 0;
-    return 1;
+    return 1;                          
 }
+
 
 int main(int argc,char*argv[]){
     if(argc<=1) exit(EINVAL);
