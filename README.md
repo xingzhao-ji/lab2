@@ -1,17 +1,22 @@
-## UID: 123456789
+## UID: 906279015
 
 ## Pipe Up
 
-One sentence description
+Low‑level C utility that chains up to eight executables exactly like the shell’s `|`, using `pipe(2)`, `fork(2)`, `dup2(2)`, and `execvp(3)`.
 
 ## Building
 
-Explain briefly how to build your program
-
+To build the program,  run this command 
+```bash
+make
+```
 ## Running
 
 Show an example run of your program, using at least two additional arguments, and what to expect
 
 ## Cleaning up
 
-Explain briefly how to clean up all binary files
+To clean up all binary files, run this command
+```bash
+make clean
+```
