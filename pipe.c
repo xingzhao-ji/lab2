@@ -7,42 +7,23 @@
 #include <stdio.h>
 #include <string.h>
 
-static int map_status(int s) {
+static int map(int s) {
     if (WIFSIGNALED(s)) return WTERMSIG(s) == SIGPIPE ? 0 : 128 + WTERMSIG(s);
     int c = WEXITSTATUS(s);
     return c == 128 + SIGPIPE ? 0 : c;
 }
 
-static int is_path_exec(const char *p) { return access(p, X_OK) == 0; }
-
-static int looks_like_cmd(const char *t) {
+static int is_num(const char *t) {
     if (!t || !*t) return 0;
-    if (strchr(t, '/')) return is_path_exec(t);
-    const char *path = getenv("PATH");
-    if (!path) return 0;
-    char buf[4096];
-    const char *seg = path;
-    while (*seg) {
-        const char *colon = strchr(seg, ':');
-        size_t n = colon ? (size_t)(colon - seg) : strlen(seg);
-        if (n + 1 + strlen(t) + 1 < sizeof(buf)) {
-            memcpy(buf, seg, n);
-            buf[n] = '/';
-            strcpy(buf + n + 1, t);
-            if (is_path_exec(buf)) return 1;
-        }
-        if (!colon) break;
-        seg = colon + 1;
-    }
-    return 0;
+    for (; *t; ++t) if (*t < '0' || *t > '9') return 0;
+    return 1;
 }
 
 int main(int argc, char *argv[]) {
     if (argc <= 1) exit(EINVAL);
 
-    int max = argc - 1;
-    int *start = malloc(max * sizeof(int));
-    int *len   = malloc(max * sizeof(int));
+    int *start = malloc((argc - 1) * sizeof(int));
+    int *len   = malloc((argc - 1) * sizeof(int));
     if (!start || !len) exit(ENOMEM);
 
     int m = 0, i = 1;
@@ -50,7 +31,7 @@ int main(int argc, char *argv[]) {
         start[m] = i;
         len[m]   = 1;
         ++i;
-        while (i < argc && !looks_like_cmd(argv[i])) { ++len[m]; ++i; }
+        while (i < argc && (argv[i][0] == '-' || is_num(argv[i]))) { ++len[m]; ++i; }
         ++m;
     }
 
@@ -89,7 +70,7 @@ int main(int argc, char *argv[]) {
     while (left) {
         int st; pid_t w = wait(&st);
         if (w == -1) { if (errno == EINTR) continue; exit(errno); }
-        int r = map_status(st);
+        int r = map(st);
         if (rc == 0 && r) rc = r;
         --left;
     }
