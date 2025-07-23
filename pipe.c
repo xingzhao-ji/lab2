@@ -4,105 +4,90 @@
 #include <sys/wait.h>
 #include <errno.h>
 
+static void close_all(int (*pipes)[2], int n) {
+    for (int i = 0; i < n; ++i) {
+        close(pipes[i][0]);
+        close(pipes[i][1]);
+    }
+}
+
 int main(int argc, char *argv[]) {
     if (argc < 2) {
         errno = EINVAL;
         exit(EINVAL);
     }
-    
-    int num_programs = argc - 1;
-    pid_t *pids = malloc(num_programs * sizeof(pid_t));
+
+    const int n = argc - 1;
+
+    pid_t *pids = malloc((size_t)n * sizeof *pids);
     if (!pids) {
-        perror("malloc");
+        perror("malloc pids");
         exit(errno);
     }
-    
-    int (*pipes)[2] = malloc((num_programs - 1) * sizeof(int[2]));
-    if (!pipes && num_programs > 1) {
-        perror("malloc");
-        free(pids);
-        exit(errno);
-    }
-    
-    for (int i = 0; i < num_programs - 1; i++) {
-        if (pipe(pipes[i]) == -1) {
-            perror("pipe");
-            // Clean up previously created pipes
-            for (int j = 0; j < i; j++) {
-                close(pipes[j][0]);
-                close(pipes[j][1]);
-            }
-            free(pipes);
+
+    int (*pipes)[2] = NULL;
+    if (n > 1) {
+        pipes = malloc((size_t)(n - 1) * sizeof(int[2]));
+        if (!pipes) {
+            perror("malloc pipes");
             free(pids);
             exit(errno);
         }
+        for (int i = 0; i < n - 1; ++i) {
+            if (pipe(pipes[i]) == -1) {
+                perror("pipe");
+                close_all(pipes, i);
+                free(pipes);
+                free(pids);
+                exit(errno);
+            }
+        }
     }
-    
-    for (int i = 0; i < num_programs; i++) {
+
+    for (int i = 0; i < n; ++i) {
         pids[i] = fork();
-        
         if (pids[i] == -1) {
             perror("fork");
-            for (int j = 0; j < num_programs - 1; j++) {
-                close(pipes[j][0]);
-                close(pipes[j][1]);
-            }
-            for (int j = 0; j < i; j++) {
-                waitpid(pids[j], NULL, 0);
-            }
+            if (pipes) close_all(pipes, n - 1);
+            for (int j = 0; j < i; ++j) waitpid(pids[j], NULL, 0);
             free(pipes);
             free(pids);
             exit(errno);
         }
-        
+
         if (pids[i] == 0) {
-            if (i > 0) {
-                // Not the first process - read from previous pipe
-                if (dup2(pipes[i-1][0], STDIN_FILENO) == -1) {
-                    perror("dup2 input");
+            if (n > 1) {
+                if (i > 0 && dup2(pipes[i - 1][0], STDIN_FILENO) == -1) {
+                    perror("dup2 stdin");
                     exit(errno);
                 }
-            }
-            
-            if (i < num_programs - 1) {
-                // Not the last process - write to next pipe
-                if (dup2(pipes[i][1], STDOUT_FILENO) == -1) {
-                    perror("dup2 output");
+                if (i < n - 1 && dup2(pipes[i][1], STDOUT_FILENO) == -1) {
+                    perror("dup2 stdout");
                     exit(errno);
                 }
+                close_all(pipes, n - 1);
             }
-            
-            for (int j = 0; j < num_programs - 1; j++) {
-                close(pipes[j][0]);
-                close(pipes[j][1]);
-            }
-            
-            execlp(argv[i + 1], argv[i + 1], (char *)NULL);
-            
-            perror("execlp");
+            execvp(argv[i + 1], &argv[i + 1]);
+            perror("execvp");
             exit(errno);
         }
     }
-    
-    for (int i = 0; i < num_programs - 1; i++) {
-        close(pipes[i][0]);
-        close(pipes[i][1]);
-    }
-    
+
+    if (pipes) close_all(pipes, n - 1);
+
     int exit_status = 0;
-    for (int i = 0; i < num_programs; i++) {
-        int status;
-        if (waitpid(pids[i], &status, 0) == -1) {
-            perror("waitpid");
-            exit_status = errno;
-        }
-        if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
-            exit_status = WEXITSTATUS(status);
+    for (int i = 0; i < n; ++i) {
+        int st;
+        if (waitpid(pids[i], &st, 0) == -1) {
+            if (!exit_status) exit_status = errno;
+        } else if (WIFEXITED(st)) {
+            int s = WEXITSTATUS(st);
+            if (s && !exit_status) exit_status = s;
         }
     }
-    
+
     free(pipes);
     free(pids);
-    
+
     exit(exit_status);
 }
